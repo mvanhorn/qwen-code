@@ -3866,6 +3866,39 @@ describe('AgentTool', () => {
       writeMetaSpy.mockRestore();
     });
 
+    it("persists a background subagent's resolved model in its meta sidecar", async () => {
+      vi.mocked(mockSubagentManager.loadSubagent).mockResolvedValue({
+        ...bgSubagent,
+        model: 'fast',
+      });
+      vi.mocked(config.getFastModel).mockReturnValue('openai:qwen3.6lf');
+      vi.mocked(mockAgent.getCore).mockReturnValue({
+        modelConfig: { model: 'qwen3.6lf' },
+        getEventEmitter: () => ({ on: vi.fn(), off: vi.fn() }),
+      } as unknown as ReturnType<typeof mockAgent.getCore>);
+      const writeMetaSpy = vi.spyOn(transcript, 'writeAgentMeta');
+
+      const invocation = (
+        agentTool as AgentToolWithProtectedMethods
+      ).createInvocation({
+        description: 'Start monitor',
+        prompt: 'Watch for changes',
+        subagent_type: 'monitor',
+      });
+      await invocation.execute();
+
+      expect(writeMetaSpy).toHaveBeenCalledWith(
+        expect.stringMatching(/agent-monitor-.*\.meta\.json$/),
+        expect.objectContaining({
+          persistedCliFlags: expect.objectContaining({
+            model: 'qwen3.6lf',
+          }),
+        }),
+      );
+
+      writeMetaSpy.mockRestore();
+    });
+
     it('stores sanitized background results in the registry', async () => {
       vi.mocked(mockAgent.getFinalText).mockReturnValue(
         '<analysis>scratch</analysis><summary>visible</summary>',
@@ -4477,6 +4510,10 @@ describe('AgentTool', () => {
       };
       vi.mocked(config.getFastModel).mockReturnValue('openai:qwen3.6lf');
       vi.mocked(mockSubagentManager.loadSubagent).mockResolvedValue(fgSubagent);
+      vi.mocked(mockAgent.getCore).mockReturnValue({
+        modelConfig: { model: 'qwen3.6lf' },
+        getEventEmitter: () => ({ on: vi.fn(), off: vi.fn() }),
+      } as unknown as ReturnType<typeof mockAgent.getCore>);
       const writeMetaSpy = vi.spyOn(transcript, 'writeAgentMeta');
 
       const invocation = (
