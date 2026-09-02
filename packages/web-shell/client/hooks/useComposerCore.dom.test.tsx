@@ -17,6 +17,11 @@ import type {
 } from '../customization';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+Object.defineProperty(globalThis, 'localStorage', {
+  configurable: true,
+  value: sessionStorage,
+  writable: true,
+});
 
 let container: HTMLDivElement | null = null;
 let root: Root | null = null;
@@ -231,6 +236,17 @@ function pressHistoryKey(key: 'ArrowUp' | 'ArrowDown') {
       bubbles: true,
     }),
   );
+}
+
+function pressComposerDeletionKey(key: 'Backspace' | 'Delete') {
+  const event = new KeyboardEvent('keydown', {
+    key,
+    code: key,
+    bubbles: true,
+    cancelable: true,
+  });
+  container!.querySelector('.cm-content')!.dispatchEvent(event);
+  return event;
 }
 
 function blurEditor() {
@@ -902,6 +918,150 @@ describe('useComposerCore history and drafts', () => {
       configurable: true,
     });
   });
+});
+
+describe('useComposerCore attachment deletion keys', () => {
+  it('removes images from the directional edge and consumes the keypress', async () => {
+    await mount();
+    act(() => {
+      latest!.handle.restoreImages([
+        { data: 'first', media_type: 'image/png' },
+        { data: 'middle', media_type: 'image/jpeg' },
+        { data: 'last', media_type: 'image/webp' },
+      ]);
+    });
+
+    let event: KeyboardEvent;
+    act(() => {
+      event = pressComposerDeletionKey('Backspace');
+    });
+    expect(event!.defaultPrevented).toBe(true);
+    expect(latest!.pastedImages.map((image) => image.data)).toEqual([
+      'first',
+      'middle',
+    ]);
+
+    act(() => {
+      event = pressComposerDeletionKey('Delete');
+    });
+    expect(event!.defaultPrevented).toBe(true);
+    expect(latest!.pastedImages.map((image) => image.data)).toEqual(['middle']);
+  });
+
+  it('removes files from the directional edge when no image is available', async () => {
+    await mount();
+    act(() => {
+      latest!.handle.restoreFiles([
+        { name: 'first.txt', media_type: 'text/plain', text: 'first' },
+        { name: 'middle.txt', media_type: 'text/plain', text: 'middle' },
+        { name: 'last.txt', media_type: 'text/plain', text: 'last' },
+      ]);
+    });
+
+    act(() => {
+      pressComposerDeletionKey('Backspace');
+    });
+    expect(latest!.pastedFiles.map((file) => file.name)).toEqual([
+      'first.txt',
+      'middle.txt',
+    ]);
+
+    act(() => {
+      pressComposerDeletionKey('Delete');
+    });
+    expect(latest!.pastedFiles.map((file) => file.name)).toEqual([
+      'middle.txt',
+    ]);
+  });
+
+  it.each(['Backspace', 'Delete'] as const)(
+    'removes a top tag before attachments for %s',
+    async (key) => {
+      await mount();
+      act(() => {
+        latest!.addTags([
+          { id: 'orders', value: 'orders', serialized: '@orders' },
+        ]);
+        latest!.handle.restoreImages([
+          { data: 'image', media_type: 'image/png' },
+        ]);
+        latest!.handle.restoreFiles([
+          { name: 'notes.txt', media_type: 'text/plain', text: 'notes' },
+        ]);
+      });
+
+      act(() => {
+        pressComposerDeletionKey(key);
+      });
+      expect(latest!.composerTags).toEqual([]);
+      expect(latest!.pastedImages).toHaveLength(1);
+      expect(latest!.pastedFiles).toHaveLength(1);
+
+      act(() => {
+        pressComposerDeletionKey(key);
+      });
+      expect(latest!.pastedImages).toEqual([]);
+      expect(latest!.pastedFiles).toHaveLength(1);
+    },
+  );
+
+  it.each(['Backspace', 'Delete'] as const)(
+    'does not remove attachments for a selection or nonzero cursor with %s',
+    async (key) => {
+      await mount();
+      act(() => {
+        latest!.setText('draft');
+        latest!.handle.restoreImages([
+          { data: 'image', media_type: 'image/png' },
+        ]);
+        latest!.viewRef.current!.dispatch({
+          selection: { anchor: 0, head: 2 },
+        });
+        pressComposerDeletionKey(key);
+      });
+      expect(latest!.pastedImages).toHaveLength(1);
+
+      act(() => {
+        latest!.setText('draft');
+        latest!.viewRef.current!.dispatch({ selection: { anchor: 2 } });
+        pressComposerDeletionKey(key);
+      });
+      expect(latest!.pastedImages).toHaveLength(1);
+    },
+  );
+
+  it.each(['Backspace', 'Delete'] as const)(
+    'does not remove attachments when an inline tag starts the document for %s',
+    async (key) => {
+      await mount();
+      act(() => {
+        latest!.addTags(
+          [{ id: 'orders', value: 'orders', serialized: '@orders' }],
+          { placement: 'inline' },
+        );
+        latest!.handle.restoreImages([
+          { data: 'image', media_type: 'image/png' },
+        ]);
+        latest!.viewRef.current!.dispatch({ selection: { anchor: 0 } });
+        pressComposerDeletionKey(key);
+      });
+
+      expect(latest!.pastedImages).toHaveLength(1);
+    },
+  );
+
+  it.each(['Backspace', 'Delete'] as const)(
+    'leaves the empty composer unchanged for %s without a removable item',
+    async (key) => {
+      await mount();
+      act(() => {
+        pressComposerDeletionKey(key);
+      });
+
+      expect(latest!.getText()).toBe('');
+      expect(latest!.hasAttachments).toBe(false);
+    },
+  );
 });
 
 describe('useComposerCore paste', () => {
