@@ -6,7 +6,10 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { createDebugLogger } from '@qwen-code/qwen-code-core/utils/debugLogger.js';
 import { canUseRipgrep } from '@qwen-code/qwen-code-core/utils/ripgrepUtils.js';
+
+const debugLogger = createDebugLogger('USER_STARTUP_WARNINGS');
 
 type WarningCheckOptions = {
   workspaceRoot: string;
@@ -54,7 +57,8 @@ const ripgrepAvailabilityCheck: WarningCheck = {
       }
       return null;
     } catch (error) {
-      return `Ripgrep not available: ${error instanceof Error ? error.message : 'Unknown error'}. Falling back to built-in grep.`;
+      debugLogger.debug('Ripgrep could not run:', error);
+      return 'Ripgrep could not run. Built-in grep is being used. Install system ripgrep to restore faster search.';
     }
   },
 };
